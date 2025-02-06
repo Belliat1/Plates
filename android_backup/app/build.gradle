@@ -1,0 +1,78 @@
+// 1. Bloque buildscript (debe ir primero)
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.0.2'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0"
+    }
+}
+
+// 2. Bloque plugins
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+// 3. Configuración del proyecto
+android {
+    namespace = "com.example.detector_placas"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        applicationId = "com.example.detector_placas"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.debug
+        }
+    }
+
+    dependencies {
+        // Dependencias para ONNX Runtime
+        implementation 'onnxruntime:onnxruntime-mobile:1.14.1'
+
+        // Dependencias para CameraX
+        implementation 'androidx.camera:camera-core:1.1.0'
+        implementation 'androidx.camera:camera-camera2:1.1.0'
+        implementation 'androidx.camera:camera-lifecycle:1.1.0'
+        implementation 'androidx.camera:camera-view:1.0.0'
+
+        // Dependencias para ML Kit (opcional si usas ML Kit)
+        implementation 'com.google.mlkit:object-detection:16.0.0'
+
+        // Dependencia de Tess-Two
+        implementation 'com.rmtheis:tess-two:10.2.0'
+    }
+}
+
+// 4. Configuración de Flutter
+flutter {
+    source = "../.."
+}
+
+// 5. Configuración de repositorios para todos los proyectos
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}

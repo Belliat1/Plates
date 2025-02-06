@@ -1,0 +1,43 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace "com.example.detector_placas"  // ✅ Agrega esta línea
+
+    compileSdkVersion 34  // ✅ Asegúrate de que esté en 34
+
+    defaultConfig {
+        applicationId "com.example.detector_placas"
+        minSdkVersion 21
+        targetSdkVersion 34  // ✅ Cambia a 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true  // ✅ Mantén esto en `true`
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22"
+}
+
+flutter {
+    source "../.."
+}

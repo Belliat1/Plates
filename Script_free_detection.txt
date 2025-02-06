@@ -1,0 +1,107 @@
+import cv2
+import pytesseract
+import numpy as np
+import requests
+
+# Configurar la ruta de Tesseract OCR si es necesario
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+# Configuración de Carmen Cloud API
+API_KEY = "5ffec9d91e7eff32ccd2bca9e380bf30877a6078"
+API_URL = "https://api.carmencloud.com/vehicle/eur"
+LOCATION = "COL"
+SERVICE = "anpr"
+
+# Cargar el modelo Haarcascade para detección de vehículos
+vehicle_cascade = cv2.CascadeClassifier(r'C:\Users\belli\Downloads\cars.xml')
+
+def preprocess_image(frame):
+    """Preprocesar la imagen para mejorar la detección de texto."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edged = cv2.Canny(blurred, 50, 200)
+    return edged
+
+def detect_vehicles(frame):
+    """Detectar vehículos en el cuadro usando Haarcascade."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    vehicles = vehicle_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+    return vehicles
+
+def send_to_carmen_api(frame, region):
+    """Enviar región del vehículo al API de Carmen Cloud."""
+    x, y, w, h = region
+    cropped = frame[y:y+h, x:x+w]
+    _, buffer = cv2.imencode(".jpg", cropped)
+
+    headers = {"X-Api-Key": API_KEY}
+    files = {"image": ("image.jpg", buffer.tobytes(), "image/jpeg")}
+    data = {"service": SERVICE, "location": LOCATION}
+
+    try:
+        response = requests.post(API_URL, headers=headers, files=files, data=data)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Error en la API de Carmen Cloud: {response.status_code}")
+    except Exception as e:
+        print(f"Error al conectar con la API: {e}")
+    return None
+
+def main():
+    """Procesar un video y detectar vehículos y placas."""
+    video_path = r'C:\\Users\\belli\\Downloads\\Plates.mp4'  # Ruta del video
+    cap = cv2.VideoCapture(video_path)
+
+    if not cap.isOpened():
+        print("No se pudo abrir el video.")
+        return
+
+    # Configuración de salida del video procesado
+    output_video_path = r'C:\\Users\\belli\\Downloads\\processed_video.mp4'
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_width, frame_height))
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Fin del video.")
+            break
+
+        # Detectar vehículos
+        vehicles = detect_vehicles(frame)
+
+        for (x, y, w, h) in vehicles:
+            # Enviar la región del vehículo al API
+            response = send_to_carmen_api(frame, (x, y, w, h))
+            unicode_text = None
+
+            if response and "data" in response and "vehicles" in response["data"]:
+                vehicles_data = response["data"]["vehicles"]
+                if vehicles_data:
+                    plate_data = vehicles_data[0].get("plate", {})
+                    unicode_text = plate_data.get("unicodeText", "")
+
+            # Mostrar la placa detectada
+            if unicode_text:
+                cv2.putText(frame, f"Placa: {unicode_text}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            # Dibujar la región detectada
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
+
+        # Mostrar el cuadro procesado
+        cv2.imshow("Detección de Vehículos y Placas", frame)
+        out.write(frame)  # Guardar el cuadro procesado en el video de salida
+
+        # Salir con la tecla 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()

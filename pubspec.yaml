@@ -1,0 +1,34 @@
+name: detector_placas
+description: "Aplicación de detección de placas vehiculares usando Flutter y Flask."
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  camera: ^0.11.0+2 # Solo para Android/iOS
+  sqflite: ^2.2.3 # Solo para Android/iOS
+  path_provider: ^2.0.14
+  file_selector: ^0.8.0
+  permission_handler: ^10.4.3
+  google_ml_kit: ^0.19.0 
+  http: ^0.13.6
+  image_picker: ^0.8.5+3
+  provider: ^6.0.5
+  image_picker_web: ^3.0.0 # Para capturar imágenes en Flutter Web
+  sqflite_common_ffi: ^2.3.0 # Base de datos en Windows
+  webview_flutter: ^4.2.2
+  excel: ^4.0.6
+  csv: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/Plates_Demo.mp4
