@@ -1,8 +1,21 @@
-platform :ios, '15.5'
+# Uncomment this line to define a global platform for your project
+platform :ios, '15.5'  # ⬅️ Asegúrate de que esta versión sea compatible con tus dependencias
 
-use_frameworks!
-use_modular_headers!
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+# Flutter Podfile setup
+#require_relative '../flutter/bin/flutter'
+
+flutter_root = File.expand_path('..', __dir__)
 
 target 'Runner' do
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods flutter_root
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
 end
