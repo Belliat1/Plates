@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -7,6 +8,7 @@ import 'package:google_ml_kit/google_ml_kit.dart';
 
 class CameraScreen extends StatefulWidget {
   final List<String> plates;
+
   const CameraScreen({Key? key, required this.plates}) : super(key: key);
 
   @override
@@ -20,10 +22,11 @@ class _CameraScreenState extends State<CameraScreen> {
   final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   List<Map<String, dynamic>> _recognitions = [];
   String debugMessage = "📸 Iniciando...";
-  int frameCount = 0;
 
-  final int inputSize = 640;
-  final int numClasses = 80;
+  final List<List<double>> anchors = [
+    [1.08, 1.19], [3.42, 4.41], [6.63, 11.38],
+    [9.42, 5.11], [16.62, 10.52]
+  ];
 
   @override
   void initState() {
@@ -42,9 +45,8 @@ class _CameraScreenState extends State<CameraScreen> {
 
       _cameraController = CameraController(
         backCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
       );
 
       await _cameraController?.initialize();
@@ -58,27 +60,19 @@ class _CameraScreenState extends State<CameraScreen> {
       setState(() {
         debugMessage = "❌ Error inicializando cámara: $e";
       });
-      print("❌ Error inicializando cámara: $e");
     }
   }
 
   Future<void> _loadModel() async {
     try {
-      final options = tfl.InterpreterOptions()..threads = 4;
-      _interpreter = await tfl.Interpreter.fromAsset(
-        "assets/models/yolov8n_float32.tflite",
-        options: options,
-      );
-
+      _interpreter = await tfl.Interpreter.fromAsset("assets/models/yolov2_tiny.tflite");
       setState(() {
         debugMessage = "✅ Modelo cargado";
       });
-      print("✅ Modelo YOLOv8 cargado. Tamaño de entrada: $inputSize x $inputSize");
     } catch (e) {
       setState(() {
         debugMessage = "❌ Error cargando modelo: $e";
       });
-      print("❌ Error cargando modelo: $e");
     }
   }
 
@@ -91,12 +85,8 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     _cameraController?.startImageStream((CameraImage image) async {
-      frameCount++;
-      if (frameCount % 10 != 0) return;
-
       if (!isDetecting) {
         isDetecting = true;
-        print("🖼️ Procesando frame #$frameCount");
         await _processFrame(image);
         isDetecting = false;
       }
@@ -116,92 +106,106 @@ class _CameraScreenState extends State<CameraScreen> {
         debugMessage = "📸 Procesando frame...";
       });
 
-      final inputImage = _convertCameraImage(image);
-      final inputBuffer = _preprocessImage(inputImage);
+      img.Image inputImage = _convertCameraImage(image);
+      Float32List input = _preprocessImage(inputImage);
 
-      final outputShape = [1, 84, 8400];
-      final outputBuffer = List.generate(
-          outputShape[0],
-          (_) => List.generate(
-              outputShape[1],
-              (_) => List<double>.filled(outputShape[2], 0.0)));
+      final outputShape = [1, 13, 13, 125];
+      var output = List.filled(1 * 13 * 13 * 125, 0.0).reshape(outputShape);
 
-      Map<int, Object> outputs = {0: outputBuffer};
+      _interpreter?.run(input.buffer.asFloat32List(), output);
 
-      _interpreter?.runForMultipleInputs([inputBuffer], outputs);
-
-      final output = outputs[0] as List<List<List<double>>>;
-      print("📤 Output shape: ${output.length}x${output[0].length}x${output[0][0].length}");
-
-      _processYOLOv8Detections(output);
+      _processDetections(output, image.width, image.height);
     } catch (e) {
       setState(() {
         debugMessage = "❌ Error procesando frame: $e";
       });
-      print("❌ Error procesando frame: $e");
     }
   }
 
-  List<List<List<double>>> _preprocessImage(img.Image image) {
-    final inputTensor = List.generate(
-      1,
-      (_) => List.generate(
-        inputSize,
-        (_) => List<double>.filled(inputSize * 3, 0),
-      ),
-    );
+  img.Image _convertCameraImage(CameraImage cameraImage) {
+    final width = cameraImage.width;
+    final height = cameraImage.height;
 
-    for (int y = 0; y < inputSize; y++) {
-      for (int x = 0; x < inputSize; x++) {
-        final pixel = image.getPixel(x, y);
+    final yRowStride = cameraImage.planes[0].bytesPerRow;
+    final uvRowStride = cameraImage.planes[1].bytesPerRow;
+    final uvPixelStride = cameraImage.planes[1].bytesPerPixel!;
 
-        inputTensor[0][y][x * 3] = img.getRed(pixel) / 255.0;
-        inputTensor[0][y][x * 3 + 1] = img.getGreen(pixel) / 255.0;
-        inputTensor[0][y][x * 3 + 2] = img.getBlue(pixel) / 255.0;
+    final image = img.Image(width: width, height: height);
+
+    for (int h = 0; h < height; h++) {
+      final int uvRow = uvRowStride * (h ~/ 2);
+      final int yRow = yRowStride * h;
+
+      for (int w = 0; w < width; w++) {
+        final int uvIndex = uvRow + (w ~/ 2) * uvPixelStride;
+        final int index = yRow + w;
+
+        final yp = cameraImage.planes[0].bytes[index];
+        final up = cameraImage.planes[1].bytes[uvIndex];
+        final vp = cameraImage.planes[2].bytes[uvIndex];
+
+        int r = (yp + (1.370705 * (vp - 128))).toInt().clamp(0, 255);
+        int g = (yp - (0.337633 * (up - 128)) - (0.698001 * (vp - 128))).toInt().clamp(0, 255);
+        int b = (yp + (1.732446 * (up - 128))).toInt().clamp(0, 255);
+
+        image.setPixelRgb(w, h, r, g, b);
       }
     }
 
-    return inputTensor;
+    return img.copyResize(img.copyRotate(image, 90), width: 416, height: 416);
   }
 
-  void _processYOLOv8Detections(List<List<List<double>>> output) {
-    print("📦 Procesando YOLOv8 detecciones...");
+  Float32List _preprocessImage(img.Image image) {
+    Float32List input = Float32List(416 * 416 * 3);
+    int pixelIndex = 0;
+
+    for (int y = 0; y < 416; y++) {
+      for (int x = 0; x < 416; x++) {
+        final pixel = image.getPixel(x, y);
+        input[pixelIndex++] = img.getRed(pixel) / 255.0;
+        input[pixelIndex++] = img.getGreen(pixel) / 255.0;
+        input[pixelIndex++] = img.getBlue(pixel) / 255.0;
+      }
+    }
+    return input;
   }
 
-  img.Image _convertCameraImage(CameraImage image) {
-    final width = image.width;
-    final height = image.height;
+  void _processDetections(List output, int imageWidth, int imageHeight) {
+    List<Map<String, dynamic>> results = [];
 
-    final yBuffer = image.planes[0].bytes;
+    for (int y = 0; y < 13; y++) {
+      for (int x = 0; x < 13; x++) {
+        for (int b = 0; b < 5; b++) {
+          int index = (y * 13 + x) * 125 + b * 25;
+          double confidence = _sigmoid(output[index + 4]);
 
-    final rgbBuffer = Uint8List(width * height * 3);
-    int rgbIndex = 0;
+          if (confidence > 0.3) {
+            int classId = output.sublist(index + 5, index + 25).indexOf(output.sublist(index + 5, index + 25).reduce(max));
+            String label = "Objeto $classId";
 
-    for (int i = 0; i < yBuffer.length; i++) {
-      rgbBuffer[rgbIndex++] = yBuffer[i];
-      rgbBuffer[rgbIndex++] = yBuffer[i];
-      rgbBuffer[rgbIndex++] = yBuffer[i];
+            double bx = (x + _sigmoid(output[index])) * (imageWidth / 13);
+            double by = (y + _sigmoid(output[index + 1])) * (imageHeight / 13);
+            double bw = exp(output[index + 2]) * anchors[b][0];
+            double bh = exp(output[index + 3]) * anchors[b][1];
+
+            results.add({"x": bx, "y": by, "w": bw, "h": bh, "confidence": confidence, "label": label});
+          }
+        }
+      }
     }
 
-    final rgbImage = img.Image.fromBytes(width, height, rgbBuffer);
-    return img.copyResize(img.copyRotate(rgbImage, 90), width: inputSize, height: inputSize);
+    setState(() {
+      _recognitions = results;
+      debugMessage = "🔍 Detecciones: ${_recognitions.length}";
+    });
   }
 
-  @override
-  void dispose() {
-    _interpreter?.close();
-    _cameraController?.dispose();
-    textRecognizer.close();
-    super.dispose();
-  }
+  double _sigmoid(double x) => 1 / (1 + exp(-x));
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Detector de Placas')),
-      body: _cameraController == null || !_cameraController!.value.isInitialized
-          ? Center(child: CircularProgressIndicator())
-          : CameraPreview(_cameraController!),
+      body: CameraPreview(_cameraController!),
     );
   }
 }
